@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# Script to automate the installation of N8N, Nginx, and CertBot on an Ubuntu VPS
+# Script to automate the installation of N8N, Nginx, CertBot, and optionally PostgreSQL on an Ubuntu VPS
 
 echo "Updating and upgrading the system..."
 sudo apt update && sudo apt upgrade -y
@@ -33,6 +33,32 @@ chmod +x /root/n8n_start.sh
 # Prompt for domain and timezone
 read -p "Enter your domain (e.g., server.leadtoconnection.com): " DOMAIN
 read -p "Enter your timezone (e.g., America/Los_Angeles): " TIMEZONE
+
+# Ask if PostgreSQL should be installed
+read -p "Do you want to install and configure PostgreSQL for N8N? (yes/no): " INSTALL_POSTGRESQL
+
+POSTGRESQL_DETAILS=""
+
+if [ "$INSTALL_POSTGRESQL" == "yes" ]; then
+    echo "Installing PostgreSQL..."
+    sudo apt install postgresql postgresql-contrib -y
+
+    # Generate a random password for the PostgreSQL user
+    POSTGRES_PASSWORD=$(openssl rand -base64 12)
+
+    echo "Setting up PostgreSQL for N8N..."
+    sudo -u postgres psql -c "CREATE DATABASE n8n;"
+    sudo -u postgres psql -c "CREATE USER n8nuser WITH PASSWORD '$POSTGRES_PASSWORD';"
+    sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE n8n TO n8nuser;"
+    sudo -u postgres psql -c "ALTER USER n8nuser WITH SUPERUSER;"
+
+    # Update n8n.service file to use PostgreSQL
+    echo "Updating n8n.service to use PostgreSQL..."
+    sed -i "/^Environment=\"N8N_DIAGNOSTICS_ENABLED=false\"/a Environment=\"DB_TYPE=postgresdb\"\nEnvironment=\"DB_POSTGRESDB_HOST=localhost\"\nEnvironment=\"DB_POSTGRESDB_PORT=5432\"\nEnvironment=\"DB_POSTGRESDB_DATABASE=n8n\"\nEnvironment=\"DB_POSTGRESDB_USER=n8nuser\"\nEnvironment=\"DB_POSTGRESDB_PASSWORD=$POSTGRES_PASSWORD\"" /etc/systemd/system/n8n.service
+
+    # Save PostgreSQL details for final echo
+    POSTGRESQL_DETAILS="PostgreSQL has been installed and configured for N8N.\nDatabase: n8n\nUser: n8nuser\nPassword: $POSTGRES_PASSWORD"
+fi
 
 echo "Creating n8n.service file..."
 cat <<EOT > /etc/systemd/system/n8n.service
@@ -116,3 +142,8 @@ echo "Displaying crontab entries..."
 crontab -l
 
 echo "Installation and configuration complete!"
+
+# If PostgreSQL was installed, echo the details
+if [ "$INSTALL_POSTGRESQL" == "yes" ]; then
+    echo -e "\n$POSTGRESQL_DETAILS"
+fi
